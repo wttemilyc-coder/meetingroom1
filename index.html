@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>會議室預約 App (V3.0)</title>
+    <title>會議室預約 App (雲端同步版)</title>
     
     <script src="https://cdn.tailwindcss.com"></script>
     
@@ -36,14 +36,19 @@
             border-bottom: 1px solid rgba(0,0,0,0.05);
         }
 
+        /* 讀取中動畫 */
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
         .slide-up-enter-active, .slide-up-leave-active { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
         .slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); }
-        
-        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
-        .fade-enter-from, .fade-leave-to { opacity: 0; }
-        
-        .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
-        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
     </style>
 </head>
 <body>
@@ -51,47 +56,21 @@
 <div id="app" class="app-container flex flex-col">
     
     <header class="glass-header sticky top-0 z-20 px-6 py-4 flex justify-between items-center">
-        <div class="flex items-center gap-4">
-            <button @click="prevUnit" class="w-8 h-8 rounded-full text-gray-400 hover:bg-gray-100 active:scale-95 transition">
-                <i class="fa-solid fa-chevron-left text-sm"></i>
-            </button>
-
-            <button @click="showDatePicker = true" class="p-1 rounded-lg hover:bg-gray-100">
-                <h1 class="text-xl font-bold text-gray-800">{{ currentYear }}年 {{ currentMonth + 1 }}月</h1>
-                <div class="flex items-center justify-center gap-2">
-                    <span class="w-2 h-2 rounded-full" :class="dbConnected ? 'bg-green-500' : 'bg-red-500'"></span>
-                    <p class="text-xs text-gray-500 font-medium">{{ dbConnected ? '雲端已連線' : '請設定資料庫' }}</p>
-                </div>
-            </button>
-
-            <button @click="nextUnit" class="w-8 h-8 rounded-full text-gray-400 hover:bg-gray-100 active:scale-95 transition">
-                <i class="fa-solid fa-chevron-right text-sm"></i>
-            </button>
-        </div>
-        
-        <div class="flex items-center gap-2">
-            <div class="inline-flex rounded-full bg-gray-100 p-0.5">
-                <button @click="currentView = 'month'" 
-                        class="px-3 py-1 text-xs font-semibold rounded-full transition-all"
-                        :class="currentView === 'month' ? 'bg-white shadow text-blue-600' : 'text-gray-500'">
-                    月
-                </button>
-                <button @click="currentView = 'week'" 
-                        class="px-3 py-1 text-xs font-semibold rounded-full transition-all"
-                        :class="currentView === 'week' ? 'bg-white shadow text-blue-600' : 'text-gray-500'">
-                    週
-                </button>
+        <div>
+            <h1 class="text-xl font-bold text-gray-800">{{ currentYear }}年 {{ currentMonth + 1 }}月</h1>
+            <div class="flex items-center gap-2">
+                <span class="w-2 h-2 rounded-full" :class="dbConnected ? 'bg-green-500' : 'bg-red-500'"></span>
+                <p class="text-xs text-gray-500 font-medium">{{ dbConnected ? '雲端已連線' : '尚未設定資料庫' }}</p>
             </div>
-            
-            <button @click="resetToToday" class="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-bold shadow-sm active:scale-95 transition">
-                今
-            </button>
         </div>
+        <button @click="resetToToday" class="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-bold shadow-sm active:scale-95 transition">
+            今
+        </button>
     </header>
 
     <main class="flex-1 overflow-y-auto no-scrollbar pb-24">
         
-        <div v-if="currentView === 'month'" class="px-4 py-4">
+        <div class="px-4 py-4">
             <div class="grid grid-cols-7 mb-2">
                 <div v-for="day in ['日','一','二','三','四','五','六']" :key="day" class="text-center text-xs text-gray-400 font-medium py-2">{{ day }}</div>
             </div>
@@ -101,28 +80,10 @@
                 
                 <div v-for="date in daysInMonth" :key="date" 
                      @click="selectDate(date)"
-                     @dblclick="handleDayDblClick(date)"
                      class="relative flex flex-col items-center justify-center h-12 rounded-2xl transition-all cursor-pointer"
                      :class="getDateClass(date)">
                     <span class="text-sm font-medium z-10">{{ date }}</span>
-                    
                     <div class="flex gap-0.5 mt-1" v-if="hasBooking(date)">
-                        <span class="w-1 h-1 rounded-full bg-blue-500"></span>
-                    </div>
-                </div>
-            </div>
-        </div>
-
-        <div v-if="currentView === 'week'" class="px-4 py-4">
-             <div class="grid grid-cols-7 gap-x-1">
-                <div v-for="day in weekDaysList" :key="day.date"
-                     @click="selectDate(day.day)"
-                     @dblclick="handleDayDblClick(day.day)"
-                     class="relative flex flex-col items-center justify-center h-16 rounded-2xl transition-all cursor-pointer"
-                     :class="getDateClass(day.day)">
-                    <span class="text-[10px] font-medium z-10" :class="day.isCurrentMonth ? 'text-gray-500' : 'text-gray-400'">{{ day.label }}</span>
-                    <span class="text-sm font-bold z-10 mt-1">{{ day.day }}</span>
-                    <div class="flex gap-0.5 mt-1" v-if="hasBooking(day.day, day.month, day.year)">
                         <span class="w-1 h-1 rounded-full bg-blue-500"></span>
                     </div>
                 </div>
@@ -131,35 +92,43 @@
 
         <div class="px-6 mt-2 relative min-h-[200px]">
             <div class="flex items-center justify-between mb-4 sticky top-0 bg-white/95 backdrop-blur py-2 z-10">
-                <h2 class="text-lg font-bold text-gray-800">
-                    {{ currentMonth + 1 }}月{{ selectedDate }}日 行程
-                </h2>
+                <h2 class="text-lg font-bold text-gray-800">{{ selectedDate }}日 行程</h2>
                 <span class="text-xs font-medium px-2 py-1 bg-gray-100 rounded-lg text-gray-500">{{ getWeekDay(selectedDate) }}</span>
             </div>
 
             <div v-if="isLoading" class="flex justify-center py-10">
                 <div class="loading-spinner"></div>
             </div>
+
             <div v-else-if="dayBookings.length === 0" class="flex flex-col items-center justify-center py-10 text-gray-400">
                 <i class="fa-regular fa-calendar-plus text-4xl mb-3 opacity-20"></i>
-                <p class="text-sm">點擊右下角或**雙擊日期**新增預約</p>
+                <p class="text-sm">點擊右下角新增預約</p>
             </div>
+
             <transition-group name="list" tag="div" class="space-y-3">
                 <div v-for="booking in dayBookings" :key="booking.id" 
                      class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-start gap-4 relative overflow-hidden group">
+                    
                     <div class="absolute left-0 top-0 bottom-0 w-1.5" :class="getRoomColor(booking.room)"></div>
+                    
                     <div class="flex flex-col items-center min-w-[3.5rem]">
                         <span class="text-sm font-bold text-gray-800">{{ booking.startTime }}</span>
                         <span class="text-[10px] text-gray-400 my-0.5">|</span>
                         <span class="text-xs text-gray-500">{{ booking.endTime }}</span>
                     </div>
+
                     <div class="flex-1">
                         <h3 class="text-sm font-bold text-gray-800 leading-tight">{{ booking.title }}</h3>
                         <div class="flex items-center gap-2 mt-2">
-                            <span class="text-[10px] px-2 py-0.5 rounded-md font-medium bg-gray-50 text-gray-600 border border-gray-200">{{ booking.room }}</span>
-                            <span class="text-[10px] text-gray-400"><i class="fa-regular fa-user mr-1"></i>{{ booking.user }}</span>
+                            <span class="text-[10px] px-2 py-0.5 rounded-md font-medium bg-gray-50 text-gray-600 border border-gray-200">
+                                {{ booking.room }}
+                            </span>
+                            <span class="text-[10px] text-gray-400">
+                                <i class="fa-regular fa-user mr-1"></i>{{ booking.user }}
+                            </span>
                         </div>
                     </div>
+                    
                     <button @click="deleteBooking(booking.id)" class="opacity-0 group-hover:opacity-100 transition text-gray-300 hover:text-red-500 px-2">
                         <i class="fa-solid fa-trash-can"></i>
                     </button>
@@ -175,29 +144,29 @@
     <transition name="slide-up">
         <div v-if="showModal" class="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
             <div @click="showModal = false" class="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity"></div>
+            
             <div class="bg-white w-full max-w-[480px] rounded-t-3xl sm:rounded-3xl p-6 relative z-10 shadow-2xl pb-10 sm:pb-6">
                 <div class="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-6"></div>
-                <h3 class="text-xl font-bold text-gray-800 mb-6">新增預約 ({{ currentMonth + 1 }}月{{ selectedDate }}日)</h3>
+                <h3 class="text-xl font-bold text-gray-800 mb-6">新增預約</h3>
                 
                 <div class="space-y-5">
                     <div>
+                        <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">會議主題</label>
+                        <input v-model="newBooking.title" type="text" class="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-300" placeholder="例如：產品週會">
+                    </div>
+
+                    <div>
                         <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">選擇空間</label>
-                        <div class="flex gap-2 mt-1">
-                            <button v-for="room in rooms" :key="room" @click="newBooking.room = room"
-                                    class="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all whitespace-nowrap"
+                        <div class="flex gap-2 mt-1 overflow-x-auto no-scrollbar pb-1">
+                            <button v-for="room in rooms" :key="room" 
+                                    @click="newBooking.room = room"
+                                    class="flex-shrink-0 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all whitespace-nowrap"
                                     :class="newBooking.room === room ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm' : 'border-gray-200 text-gray-500 bg-white'">
                                 {{ room }}
                             </button>
                         </div>
                     </div>
-                    <div>
-                        <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">使用人 (必填)</label>
-                        <input v-model="newBooking.user" type="text" class="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-300" placeholder="輸入您的名字">
-                    </div>
-                    <div>
-                        <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">會議主題</label>
-                        <input v-model="newBooking.title" type="text" class="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-300" placeholder="例如：產品週會">
-                    </div>
+
                     <div class="grid grid-cols-2 gap-4">
                         <div>
                             <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">開始時間</label>
@@ -208,24 +177,17 @@
                             <input v-model="newBooking.endTime" type="time" class="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm outline-none">
                         </div>
                     </div>
-                    <div v-if="roomSchedulePreview.length > 0">
-                        <label class="text-xs font-bold text-red-500 uppercase tracking-wider">該會議室已預約時段：</label>
-                        <div class="mt-1 flex flex-wrap gap-2">
-                            <span v-for="(time, index) in roomSchedulePreview" :key="index"
-                                  class="text-xs px-2 py-1 bg-red-100 text-red-700 rounded-lg font-medium">
-                                {{ time }}
-                            </span>
-                        </div>
-                    </div>
-                    <div v-else class="text-xs mt-1 text-green-600">
-                        <i class="fa-solid fa-circle-check mr-1"></i> {{ newBooking.room }} 該時段目前無預約。
+                    
+                     <div>
+                        <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">預約人</label>
+                        <input v-model="newBooking.user" type="text" class="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm outline-none" placeholder="輸入您的名字">
                     </div>
                 </div>
 
                 <div class="flex gap-3 mt-8">
                     <button @click="showModal = false" class="flex-1 py-3.5 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm">取消</button>
                     <button @click="submitBooking" 
-                            :disabled="isSubmitting || !dbConnected || !newBooking.user || !newBooking.title"
+                            :disabled="isSubmitting"
                             class="flex-1 py-3.5 rounded-xl bg-blue-600 text-white font-semibold text-sm shadow-lg shadow-blue-600/20 active:scale-95 transition disabled:opacity-50">
                         {{ isSubmitting ? '處理中...' : '確認預約' }}
                     </button>
@@ -233,35 +195,15 @@
             </div>
         </div>
     </transition>
-    
-    <transition name="fade">
-        <div v-if="showDatePicker" class="fixed inset-0 z-40 flex items-center justify-center">
-            <div @click="showDatePicker = false" class="absolute inset-0 bg-black/30 backdrop-blur-sm"></div>
-            
-            <div class="bg-white p-6 rounded-2xl shadow-xl z-10 w-80">
-                <h3 class="text-lg font-bold mb-4">選擇日期</h3>
-                <div class="flex gap-4">
-                    <select v-model="tempYear" class="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-3 text-base">
-                        <option v-for="y in yearOptions" :value="y">{{ y }}年</option>
-                    </select>
-                    <select v-model="tempMonth" class="flex-1 bg-gray-50 border border-gray-200 rounded-lg p-3 text-base">
-                        <option v-for="m in 12" :value="m - 1">{{ m }}月</option>
-                    </select>
-                </div>
-                
-                <button @click="setYearMonth(tempYear, tempMonth)" class="w-full mt-6 py-3 bg-blue-600 text-white rounded-xl font-semibold active:scale-95 transition">
-                    確定
-                </button>
-            </div>
-        </div>
-    </transition>
 
 </div>
 
 <script>
-    const { createApp, ref, computed, onMounted } = Vue;
+    const { createApp, ref, computed, onMounted, watch } = Vue;
 
-    // 🔥 請在此處填入你的 FIREBASE 設定 🔥 (與 V2.0 保持一致)
+    // ==========================================
+    // 🔥 請在此處填入你的 FIREBASE 設定 🔥
+    // ==========================================
     const firebaseConfig = {
         apiKey: "你的_API_KEY",
         authDomain: "你的_PROJECT_ID.firebaseapp.com",
@@ -271,17 +213,16 @@
         appId: "你的_APP_ID"
     };
 
+    // 初始化 Firebase (如果 config 為空則不執行，避免報錯)
     let db = null;
     let dbConnected = false;
     
-    if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "你的_API_KEY") {
-        try {
-            firebase.initializeApp(firebaseConfig);
-            db = firebase.firestore();
-            dbConnected = true;
-        } catch (e) {
-            console.error("Firebase 初始化失敗:", e);
-        }
+    if (firebaseConfig.apiKey !== "你的_API_KEY") {
+        firebase.initializeApp(firebaseConfig);
+        db = firebase.firestore();
+        dbConnected = true;
+    } else {
+        console.warn("⚠️ 請在程式碼中填入 Firebase Config 才能啟用雲端功能");
     }
 
     createApp({
@@ -293,38 +234,25 @@
             const showModal = ref(false);
             const isLoading = ref(true);
             const isSubmitting = ref(false);
-            const bookings = ref([]);
+            const bookings = ref([]); // 雲端資料將存於此
             
-            // --- New States for V3.0 ---
-            const currentView = ref('month'); // 'month' or 'week'
-            const showDatePicker = ref(false);
-            const tempYear = ref(currentYear.value);
-            const tempMonth = ref(currentMonth.value);
-            // --- End New States ---
-
-            const rooms = ['4樓會議室', '6樓會議室'];
+            const rooms = ['大會議室', '小會議室', '開放交流區', '電話亭 A', '電話亭 B'];
             const newBooking = ref({
                 title: '',
-                room: rooms[0],
+                room: '大會議室',
                 startTime: '10:00',
                 endTime: '11:00',
                 user: ''
             });
 
-            // --- 計算屬性 ---
+            // 計算當月天數與結構
+            const daysInMonth = computed(() => new Date(currentYear.value, currentMonth.value + 1, 0).getDate());
+            const startDayOfWeek = computed(() => new Date(currentYear.value, currentMonth.value, 1).getDay());
 
-            // 年份選項 (當前年-5 到 當前年+5)
-            const yearOptions = computed(() => {
-                const arr = [];
-                for(let i = currentYear.value - 5; i <= currentYear.value + 5; i++) {
-                    arr.push(i);
-                }
-                return arr;
-            });
-
-            // 過濾當日預約
+            // 篩選當日預約
             const dayBookings = computed(() => {
                 return bookings.value.filter(b => {
+                    // 將 ISO String 轉回 Date 物件比對
                     const bDate = new Date(b.date);
                     return bDate.getFullYear() === currentYear.value &&
                            bDate.getMonth() === currentMonth.value &&
@@ -332,180 +260,118 @@
                 }).sort((a, b) => a.startTime.localeCompare(b.startTime));
             });
 
-            // 預約預覽 (保持不變)
-            const roomSchedulePreview = computed(() => {
-                const preview = bookings.value.filter(b => {
-                    const bDate = new Date(b.date);
-                    const matchesDate = bDate.getFullYear() === currentYear.value &&
-                                        bDate.getMonth() === currentMonth.value &&
-                                        bDate.getDate() === selectedDate.value;
-                    const matchesRoom = b.room === newBooking.value.room;
-                    return matchesDate && matchesRoom;
-                }).sort((a, b) => a.startTime.localeCompare(b.startTime));
+            // --- 核心功能 ---
 
-                return preview.map(b => `${b.startTime} - ${b.endTime} (${b.user})`);
-            });
-
-            // 月曆相關計算 (保持不變)
-            const daysInMonth = computed(() => new Date(currentYear.value, currentMonth.value + 1, 0).getDate());
-            const startDayOfWeek = computed(() => new Date(currentYear.value, currentMonth.value, 1).getDay());
+            const selectDate = (day) => selectedDate.value = day;
             
-            // 週曆相關計算 (New Feature 2 Logic)
-            const weekDaysList = computed(() => {
-                const dayList = [];
-                const anchorDate = new Date(currentYear.value, currentMonth.value, selectedDate.value);
-                const startOfWeek = new Date(anchorDate);
-                // 找到這週的星期日 (day=0)
-                startOfWeek.setDate(anchorDate.getDate() - anchorDate.getDay()); 
-
-                for (let i = 0; i < 7; i++) {
-                    const current = new Date(startOfWeek);
-                    current.setDate(startOfWeek.getDate() + i);
-
-                    dayList.push({
-                        date: current.toISOString().substring(0, 10),
-                        year: current.getFullYear(),
-                        month: current.getMonth(),
-                        day: current.getDate(),
-                        label: ['日', '一', '二', '三', '四', '五', '六'][current.getDay()],
-                        isCurrentMonth: current.getMonth() === currentMonth.value 
-                    });
-                }
-                return dayList;
-            });
-
-
-            // --- 方法 ---
-
-            const selectDate = (day) => {
-                selectedDate.value = day;
-                // 當從週視圖點擊時，確保月份也同步
-                if (currentView.value === 'week') {
-                    // 根據 weekDaysList 找到點擊日期的真實月份
-                    const clickedDayInfo = weekDaysList.value.find(d => d.day === day);
-                    if (clickedDayInfo) {
-                        currentMonth.value = clickedDayInfo.month;
-                        currentYear.value = clickedDayInfo.year;
-                    }
-                }
-            };
-
-            const handleDayDblClick = (day) => {
-                selectDate(day);
-                showModal.value = true;
-            };
-
             const resetToToday = () => {
                 const now = new Date();
                 currentYear.value = now.getFullYear();
                 currentMonth.value = now.getMonth();
                 selectedDate.value = now.getDate();
-                currentView.value = 'month'; // 回到今天時，切換到月視圖
-            };
-            
-            // 單位導航 (根據月/週視圖切換邏輯)
-            const prevUnit = () => {
-                if (currentView.value === 'month') {
-                    prevMonth();
-                } else {
-                    // 往前移動一週
-                    const newDate = new Date(currentYear.value, currentMonth.value, selectedDate.value);
-                    newDate.setDate(newDate.getDate() - 7);
-                    currentYear.value = newDate.getFullYear();
-                    currentMonth.value = newDate.getMonth();
-                    selectedDate.value = newDate.getDate();
-                }
             };
 
-            const nextUnit = () => {
-                 if (currentView.value === 'month') {
-                    nextMonth();
-                } else {
-                    // 往後移動一週
-                    const newDate = new Date(currentYear.value, currentMonth.value, selectedDate.value);
-                    newDate.setDate(newDate.getDate() + 7);
-                    currentYear.value = newDate.getFullYear();
-                    currentMonth.value = newDate.getMonth();
-                    selectedDate.value = newDate.getDate();
-                }
-            };
-            
-            // 設定年份和月份 (New Feature 1 Logic)
-            const setYearMonth = (year, month) => {
-                currentYear.value = year;
-                currentMonth.value = month;
-                selectedDate.value = 1; // 跳轉月份後預設選擇該月第一天
-                showDatePicker.value = false;
-                currentView.value = 'month'; // 跳轉月份後預設顯示月視圖
-            };
-
-
-            const prevMonth = () => {
-                if (currentMonth.value === 0) { currentMonth.value = 11; currentYear.value--; } 
-                else { currentMonth.value--; }
-            };
-            const nextMonth = () => {
-                if (currentMonth.value === 11) { currentMonth.value = 0; currentYear.value++; } 
-                else { currentMonth.value++; }
-            };
-            
-            // (其餘輔助方法與 Firebase 互動邏輯保持不變...)
             const getWeekDay = (day) => {
                 const date = new Date(currentYear.value, currentMonth.value, day);
                 return ['星期日', '一', '二', '三', '四', '五', '六'][date.getDay()];
             };
-            const getDateClass = (day, month = currentMonth.value, year = currentYear.value) => {
-                const isSelected = day === selectedDate.value && month === currentMonth.value && year === currentYear.value;
-                const isToday = day === today.getDate() && month === today.getMonth() && year === today.getFullYear();
+
+            const getDateClass = (day) => {
+                const isSelected = day === selectedDate.value;
+                const isToday = day === today.getDate() && currentMonth.value === today.getMonth();
                 
-                let classes = '';
-                if (isSelected) classes += 'bg-blue-600 text-white shadow-md shadow-blue-500/30 transform scale-105';
-                else if (isToday) classes += 'text-blue-600 bg-blue-50 font-bold';
-                else classes += 'text-gray-700 hover:bg-gray-100';
-
-                // Week view specific style for days outside current month
-                if (currentView.value === 'week' && month !== currentMonth.value) {
-                    classes += ' opacity-50';
-                }
-
-                return classes;
+                if (isSelected) return 'bg-blue-600 text-white shadow-md shadow-blue-500/30 transform scale-105';
+                if (isToday) return 'text-blue-600 bg-blue-50 font-bold';
+                return 'text-gray-700 hover:bg-gray-100';
             };
-            // 為了週視圖新增 month, year 參數
-            const hasBooking = (day, month = currentMonth.value, year = currentYear.value) => {
+
+            const hasBooking = (day) => {
                 return bookings.value.some(b => {
                     const bDate = new Date(b.date);
-                    return bDate.getDate() === day && bDate.getMonth() === month && bDate.getFullYear() === year;
+                    return bDate.getDate() === day && bDate.getMonth() === currentMonth.value;
                 });
             };
+
             const getRoomColor = (room) => {
-                const colors = { '4樓會議室': 'bg-fuchsia-500', '6樓會議室': 'bg-teal-500'};
+                const colors = {
+                    '大會議室': 'bg-blue-500',
+                    '小會議室': 'bg-purple-500',
+                    '開放交流區': 'bg-yellow-400',
+                    '電話亭 A': 'bg-green-500',
+                    '電話亭 B': 'bg-green-500'
+                };
                 return colors[room] || 'bg-gray-400';
             };
 
+            // --- Firebase 雲端互動 ---
 
-            // --- Firebase 雲端互動 (保持不變) ---
+            // 1. 監聽資料庫變更 (Real-time Sync)
             onMounted(() => {
-                if (!dbConnected) { isLoading.value = false; return; }
+                if (!db) {
+                    isLoading.value = false;
+                    alert("請編輯 HTML 檔案，填入 Firebase Config 才能使用！");
+                    return;
+                }
+
+                // 訂閱 'bookings' 集合
                 db.collection("bookings").onSnapshot((snapshot) => {
-                    bookings.value = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    bookings.value = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
                     isLoading.value = false;
                 });
             });
 
-            const submitBooking = async () => { /* 邏輯保持不變 */ };
-            const deleteBooking = async (id) => { /* 邏輯保持不變 */ };
+            // 2. 新增預約
+            const submitBooking = async () => {
+                if(!newBooking.value.title || !newBooking.value.user) return alert('請填寫完整資訊');
+                if(!db) return;
 
+                isSubmitting.value = true;
+                
+                try {
+                    // 寫入 Firestore
+                    await db.collection("bookings").add({
+                        title: newBooking.value.title,
+                        room: newBooking.value.room,
+                        startTime: newBooking.value.startTime,
+                        endTime: newBooking.value.endTime,
+                        user: newBooking.value.user,
+                        // 儲存完整 ISO 日期格式以利查詢
+                        date: new Date(currentYear.value, currentMonth.value, selectedDate.value).toISOString(),
+                        createdAt: new Date().toISOString()
+                    });
+
+                    showModal.value = false;
+                    newBooking.value.title = ''; // 清空欄位
+                } catch (e) {
+                    alert("預約失敗：" + e.message);
+                } finally {
+                    isSubmitting.value = false;
+                }
+            };
+
+            // 3. 刪除預約
+            const deleteBooking = async (id) => {
+                if(!confirm('確定要取消這個預約嗎？')) return;
+                if(!db) return;
+                
+                try {
+                    await db.collection("bookings").doc(id).delete();
+                } catch (e) {
+                    console.error(e);
+                }
+            };
 
             return {
-                dbConnected, currentYear, currentMonth, selectedDate, daysInMonth, startDayOfWeek,
-                selectDate, handleDayDblClick, prevUnit, nextUnit, resetToToday,
-                getDateClass, getWeekDay, dayBookings, hasBooking,
-                showModal, rooms, newBooking, roomSchedulePreview, getRoomColor,
-                isLoading, isSubmitting, submitBooking, deleteBooking,
-                
-                // V3.0 新增
-                currentView, weekDaysList, 
-                showDatePicker, tempYear, tempMonth, setYearMonth, yearOptions,
+                dbConnected,
+                currentYear, currentMonth, selectedDate, daysInMonth, startDayOfWeek,
+                selectDate, getDateClass, getWeekDay, resetToToday,
+                dayBookings, hasBooking,
+                showModal, rooms, newBooking,
+                submitBooking, deleteBooking, getRoomColor,
+                isLoading, isSubmitting
             };
         }
     }).mount('#app');
