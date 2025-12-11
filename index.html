@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>會議室預約 App (V2.0)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        
+        .app-container {
+            max-width: 480px;
+            margin: 0 auto;
+            min-height: 100vh;
+            background-color: #ffffff;
+            box-shadow: 0 0 40px rgba(0,0,0,0.08);
+            position: relative;
+            overflow: hidden;
+        }
+
+        .glass-header {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px);
+            border-bottom: 1px solid rgba(0,0,0,0.05);
+        }
+
+        .loading-spinner {
+            border: 3px solid #f3f3f3;
+            border-top: 3px solid #3b82f6;
+            border-radius: 50%;
+            width: 24px;
+            height: 24px;
+            animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
+        .slide-up-enter-active, .slide-up-leave-active { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); }
+        
+        /* List Transition for agenda */
+        .list-move,
+        .list-enter-active,
+        .list-leave-active { transition: all 0.5s ease; }
+        .list-enter-from,
+        .list-leave-to { opacity: 0; transform: translateX(30px); }
+        .list-leave-active { position: absolute; }
+    </style>
+</head>
+<body>
+
+<div id="app" class="app-container flex flex-col">
+    
+    <header class="glass-header sticky top-0 z-20 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-4">
+            <button @click="prevMonth" class="w-8 h-8 rounded-full text-gray-400 hover:bg-gray-100 active:scale-95 transition">
+                <i class="fa-solid fa-chevron-left text-sm"></i>
+            </button>
+
+            <div>
+                <h1 class="text-xl font-bold text-gray-800">{{ currentYear }}年 {{ currentMonth + 1 }}月</h1>
+                <div class="flex items-center gap-2">
+                    <span class="w-2 h-2 rounded-full" :class="dbConnected ? 'bg-green-500' : 'bg-red-500'"></span>
+                    <p class="text-xs text-gray-500 font-medium">{{ dbConnected ? '雲端已連線' : '請設定資料庫' }}</p>
+                </div>
+            </div>
+
+            <button @click="nextMonth" class="w-8 h-8 rounded-full text-gray-400 hover:bg-gray-100 active:scale-95 transition">
+                <i class="fa-solid fa-chevron-right text-sm"></i>
+            </button>
+        </div>
+        
+        <button @click="resetToToday" class="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-bold shadow-sm active:scale-95 transition">
+            今
+        </button>
+    </header>
+
+    <main class="flex-1 overflow-y-auto no-scrollbar pb-24">
+        
+        <div class="px-4 py-4">
+            <div class="grid grid-cols-7 mb-2">
+                <div v-for="day in ['日','一','二','三','四','五','六']" :key="day" class="text-center text-xs text-gray-400 font-medium py-2">{{ day }}</div>
+            </div>
+
+            <div class="grid grid-cols-7 gap-y-2 gap-x-1">
+                <div v-for="n in startDayOfWeek" :key="'empty-'+n"></div>
+                
+                <div v-for="date in daysInMonth" :key="date" 
+                     @click="selectDate(date)"
+                     @dblclick="handleDayDblClick(date)"
+                     class="relative flex flex-col items-center justify-center h-12 rounded-2xl transition-all cursor-pointer"
+                     :class="getDateClass(date)">
+                    <span class="text-sm font-medium z-10">{{ date }}</span>
+                    
+                    <div class="flex gap-0.5 mt-1" v-if="hasBooking(date)">
+                        <span class="w-1 h-1 rounded-full bg-blue-500"></span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="px-6 mt-2 relative min-h-[200px]">
+            <div class="flex items-center justify-between mb-4 sticky top-0 bg-white/95 backdrop-blur py-2 z-10">
+                <h2 class="text-lg font-bold text-gray-800">{{ selectedDate }}日 行程</h2>
+                <span class="text-xs font-medium px-2 py-1 bg-gray-100 rounded-lg text-gray-500">{{ getWeekDay(selectedDate) }}</span>
+            </div>
+
+            <div v-if="isLoading" class="flex justify-center py-10">
+                <div class="loading-spinner"></div>
+            </div>
+
+            <div v-else-if="dayBookings.length === 0" class="flex flex-col items-center justify-center py-10 text-gray-400">
+                <i class="fa-regular fa-calendar-plus text-4xl mb-3 opacity-20"></i>
+                <p class="text-sm">點擊右下角或**雙擊日期**新增預約</p>
+            </div>
+
+            <transition-group name="list" tag="div" class="space-y-3">
+                <div v-for="booking in dayBookings" :key="booking.id" 
+                     class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-start gap-4 relative overflow-hidden group">
+                    
+                    <div class="absolute left-0 top-0 bottom-0 w-1.5" :class="getRoomColor(booking.room)"></div>
+                    
+                    <div class="flex flex-col items-center min-w-[3.5rem]">
+                        <span class="text-sm font-bold text-gray-800">{{ booking.startTime }}</span>
+                        <span class="text-[10px] text-gray-400 my-0.5">|</span>
+                        <span class="text-xs text-gray-500">{{ booking.endTime }}</span>
+                    </div>
+
+                    <div class="flex-1">
+                        <h3 class="text-sm font-bold text-gray-800 leading-tight">{{ booking.title }}</h3>
+                        <div class="flex items-center gap-2 mt-2">
+                            <span class="text-[10px] px-2 py-0.5 rounded-md font-medium bg-gray-50 text-gray-600 border border-gray-200">
+                                {{ booking.room }}
+                            </span>
+                            <span class="text-[10px] text-gray-400">
+                                <i class="fa-regular fa-user mr-1"></i>{{ booking.user }}
+                            </span>
+                        </div>
+                    </div>
+                    
+                    <button @click="deleteBooking(booking.id)" class="opacity-0 group-hover:opacity-100 transition text-gray-300 hover:text-red-500 px-2">
+                        <i class="fa-solid fa-trash-can"></i>
+                    </button>
+                </div>
+            </transition-group>
+        </div>
+    </main>
+
+    <button @click="showModal = true" class="fixed bottom-8 right-6 w-14 h-14 bg-gradient-to-br from-blue-600 to-blue-500 text-white rounded-full shadow-lg shadow-blue-500/40 flex items-center justify-center text-xl active:scale-90 transition z-30 hover:shadow-xl hover:-translate-y-1">
+        <i class="fa-solid fa-plus"></i>
+    </button>
+
+    <transition name="slide-up">
+        <div v-if="showModal" class="fixed inset-0 z-50 flex items-end justify-center sm:items-center">
+            <div @click="showModal = false" class="absolute inset-0 bg-black/30 backdrop-blur-sm transition-opacity"></div>
+            
+            <div class="bg-white w-full max-w-[480px] rounded-t-3xl sm:rounded-3xl p-6 relative z-10 shadow-2xl pb-10 sm:pb-6">
+                <div class="w-12 h-1 bg-gray-200 rounded-full mx-auto mb-6"></div>
+                <h3 class="text-xl font-bold text-gray-800 mb-6">新增預約 ({{ currentMonth + 1 }}月{{ selectedDate }}日)</h3>
+                
+                <div class="space-y-5">
+                    <div>
+                        <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">選擇空間</label>
+                        <div class="flex gap-2 mt-1">
+                            <button v-for="room in rooms" :key="room" 
+                                    @click="newBooking.room = room"
+                                    class="flex-1 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all whitespace-nowrap"
+                                    :class="newBooking.room === room ? 'border-blue-500 bg-blue-50 text-blue-700 shadow-sm' : 'border-gray-200 text-gray-500 bg-white'">
+                                {{ room }}
+                            </button>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">使用人 (必填)</label>
+                        <input v-model="newBooking.user" type="text" class="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-300" placeholder="輸入您的名字">
+                    </div>
+
+                    <div>
+                        <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">會議主題</label>
+                        <input v-model="newBooking.title" type="text" class="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-blue-500 outline-none placeholder-gray-300" placeholder="例如：產品週會">
+                    </div>
+                    
+                    <div class="grid grid-cols-2 gap-4">
+                        <div>
+                            <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">開始時間</label>
+                            <input v-model="newBooking.startTime" type="time" class="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm outline-none">
+                        </div>
+                        <div>
+                            <label class="text-xs font-bold text-gray-400 uppercase tracking-wider">結束時間</label>
+                            <input v-model="newBooking.endTime" type="time" class="w-full mt-1 bg-gray-50 border-none rounded-xl px-4 py-3 text-sm outline-none">
+                        </div>
+                    </div>
+                    
+                    <div v-if="roomSchedulePreview.length > 0">
+                        <label class="text-xs font-bold text-red-500 uppercase tracking-wider">該會議室已預約時段：</label>
+                        <div class="mt-1 flex flex-wrap gap-2">
+                            <span v-for="(time, index) in roomSchedulePreview" :key="index"
+                                  class="text-xs px-2 py-1 bg-red-100 text-red-700 rounded-lg font-medium">
+                                {{ time }}
+                            </span>
+                        </div>
+                    </div>
+                    <div v-else class="text-xs mt-1 text-green-600">
+                        <i class="fa-solid fa-circle-check mr-1"></i> {{ newBooking.room }} 該時段目前無預約。
+                    </div>
+
+                </div>
+
+                <div class="flex gap-3 mt-8">
+                    <button @click="showModal = false" class="flex-1 py-3.5 rounded-xl bg-gray-100 text-gray-600 font-semibold text-sm">取消</button>
+                    <button @click="submitBooking" 
+                            :disabled="isSubmitting || !dbConnected || !newBooking.user || !newBooking.title"
+                            class="flex-1 py-3.5 rounded-xl bg-blue-600 text-white font-semibold text-sm shadow-lg shadow-blue-600/20 active:scale-95 transition disabled:opacity-50">
+                        {{ isSubmitting ? '處理中...' : '確認預約' }}
+                    </button>
+                </div>
+            </div>
+        </div>
+    </transition>
+
+</div>
+
+<script>
+    const { createApp, ref, computed, onMounted } = Vue;
+
+    // ==========================================
+    // 🔥 請在此處填入你的 FIREBASE 設定 🔥
+    // ==========================================
+    const firebaseConfig = {
+        apiKey: "你的_API_KEY", // <-- 必填
+        authDomain: "你的_PROJECT_ID.firebaseapp.com",
+        projectId: "你的_PROJECT_ID", // <-- 必填
+        storageBucket: "你的_PROJECT_ID.appspot.com",
+        messagingSenderId: "你的_SENDER_ID",
+        appId: "你的_APP_ID"
+    };
+
+    let db = null;
+    let dbConnected = false;
+    
+    if (firebaseConfig.apiKey && firebaseConfig.apiKey !== "你的_API_KEY") {
+        try {
+            firebase.initializeApp(firebaseConfig);
+            db = firebase.firestore();
+            dbConnected = true;
+        } catch (e) {
+            console.error("Firebase 初始化失敗:", e);
+        }
+    } else {
+        console.warn("⚠️ 請在程式碼中填入 Firebase Config 才能啟用雲端功能");
+    }
+
+    createApp({
+        setup() {
+            const today = new Date();
+            const currentYear = ref(today.getFullYear());
+            const currentMonth = ref(today.getMonth()); // 0-11
+            const selectedDate = ref(today.getDate());
+            const showModal = ref(false);
+            const isLoading = ref(true);
+            const isSubmitting = ref(false);
+            const bookings = ref([]); 
+            
+            // 房型選項已更新
+            const rooms = ['4樓會議室', '6樓會議室'];
+            const newBooking = ref({
+                title: '',
+                room: rooms[0],
+                startTime: '10:00',
+                endTime: '11:00',
+                user: '' // 新增的使用人欄位
+            });
+
+            // --- 計算屬性 ---
+
+            // 過濾當日預約
+            const dayBookings = computed(() => {
+                return bookings.value.filter(b => {
+                    const bDate = new Date(b.date);
+                    return bDate.getFullYear() === currentYear.value &&
+                           bDate.getMonth() === currentMonth.value &&
+                           bDate.getDate() === selectedDate.value;
+                }).sort((a, b) => a.startTime.localeCompare(b.startTime));
+            });
+
+            // 預約預覽：根據選定的日期和房間，顯示該日期的所有預約
+            const roomSchedulePreview = computed(() => {
+                const preview = bookings.value.filter(b => {
+                    const bDate = new Date(b.date);
+                    const matchesDate = bDate.getFullYear() === currentYear.value &&
+                                        bDate.getMonth() === currentMonth.value &&
+                                        bDate.getDate() === selectedDate.value;
+                    const matchesRoom = b.room === newBooking.value.room;
+                    return matchesDate && matchesRoom;
+                }).sort((a, b) => a.startTime.localeCompare(b.startTime));
+
+                return preview.map(b => `${b.startTime} - ${b.endTime} (${b.user})`);
+            });
+
+            // --- 方法 ---
+
+            const selectDate = (day) => selectedDate.value = day;
+
+            // 處理雙擊事件：選擇日期並開啟表單
+            const handleDayDblClick = (day) => {
+                selectDate(day);
+                showModal.value = true;
+            };
+
+            const resetToToday = () => {
+                const now = new Date();
+                currentYear.value = now.getFullYear();
+                currentMonth.value = now.getMonth();
+                selectedDate.value = now.getDate();
+            };
+
+            // 月份導航邏輯
+            const prevMonth = () => {
+                if (currentMonth.value === 0) {
+                    currentMonth.value = 11;
+                    currentYear.value--;
+                } else {
+                    currentMonth.value--;
+                }
+            };
+
+            const nextMonth = () => {
+                if (currentMonth.value === 11) {
+                    currentMonth.value = 0;
+                    currentYear.value++;
+                } else {
+                    currentMonth.value++;
+                }
+            };
+            
+            // (其餘輔助方法保持不變...)
+            const daysInMonth = computed(() => new Date(currentYear.value, currentMonth.value + 1, 0).getDate());
+            const startDayOfWeek = computed(() => new Date(currentYear.value, currentMonth.value, 1).getDay());
+            const getWeekDay = (day) => {
+                const date = new Date(currentYear.value, currentMonth.value, day);
+                return ['星期日', '一', '二', '三', '四', '五', '六'][date.getDay()];
+            };
+            const getDateClass = (day) => {
+                const isSelected = day === selectedDate.value;
+                const isToday = day === today.getDate() && currentMonth.value === today.getMonth() && currentYear.value === today.getFullYear();
+                if (isSelected) return 'bg-blue-600 text-white shadow-md shadow-blue-500/30 transform scale-105';
+                if (isToday) return 'text-blue-600 bg-blue-50 font-bold';
+                return 'text-gray-700 hover:bg-gray-100';
+            };
+            const hasBooking = (day) => {
+                return bookings.value.some(b => {
+                    const bDate = new Date(b.date);
+                    return bDate.getDate() === day && bDate.getMonth() === currentMonth.value && bDate.getFullYear() === currentYear.value;
+                });
+            };
+            const getRoomColor = (room) => {
+                const colors = {
+                    '4樓會議室': 'bg-fuchsia-500',
+                    '6樓會議室': 'bg-teal-500',
+                };
+                return colors[room] || 'bg-gray-400';
+            };
+
+
+            // --- Firebase 雲端互動 ---
+            onMounted(() => {
+                if (!dbConnected) {
+                    isLoading.value = false;
+                    return;
+                }
+
+                db.collection("bookings").onSnapshot((snapshot) => {
+                    bookings.value = snapshot.docs.map(doc => ({
+                        id: doc.id,
+                        ...doc.data()
+                    }));
+                    isLoading.value = false;
+                });
+            });
+
+            // 新增預約
+            const submitBooking = async () => {
+                if(!newBooking.value.title || !newBooking.value.user) return alert('請填寫會議主題和使用人');
+                if(!dbConnected) return;
+
+                isSubmitting.value = true;
+                
+                try {
+                    await db.collection("bookings").add({
+                        title: newBooking.value.title,
+                        room: newBooking.value.room,
+                        startTime: newBooking.value.startTime,
+                        endTime: newBooking.value.endTime,
+                        user: newBooking.value.user,
+                        date: new Date(currentYear.value, currentMonth.value, selectedDate.value).toISOString(),
+                        createdAt: new Date().toISOString()
+                    });
+
+                    showModal.value = false;
+                    newBooking.value.title = '';
+                    // 保持 user 欄位，方便連續預約
+                } catch (e) {
+                    alert("預約失敗：" + e.message);
+                } finally {
+                    isSubmitting.value = false;
+                }
+            };
+
+            // 刪除預約
+            const deleteBooking = async (id) => {
+                if(!confirm('確定要取消這個預約嗎？')) return;
+                if(!dbConnected) return;
+                
+                try {
+                    await db.collection("bookings").doc(id).delete();
+                } catch (e) {
+                    console.error(e);
+                }
+            };
+
+            return {
+                dbConnected,
+                currentYear, currentMonth, selectedDate, daysInMonth, startDayOfWeek,
+                selectDate, handleDayDblClick, prevMonth, nextMonth, resetToToday, 
+                getDateClass, getWeekDay, dayBookings, hasBooking,
+                showModal, rooms, newBooking, roomSchedulePreview, // 新增預覽
+                submitBooking, deleteBooking, getRoomColor,
+                isLoading, isSubmitting
+            };
+        }
+    }).mount('#app');
+</script>
+</body>
+</html>
