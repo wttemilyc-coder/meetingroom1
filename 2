@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>會議室預約 App (V4.2)</title>
+    
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.22.0/firebase-firestore-compat.js"></script>
+
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #f3f4f6; -webkit-tap-highlight-color: transparent; }
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+        .app-container { max-width: 480px; margin: 0 auto; min-height: 100vh; background-color: #ffffff; box-shadow: 0 0 40px rgba(0,0,0,0.08); position: relative; overflow: hidden; }
+        .glass-header { background: rgba(255, 255, 255, 0.85); backdrop-filter: blur(12px); border-bottom: 1px solid rgba(0,0,0,0.05); }
+        .slide-up-enter-active, .slide-up-leave-active { transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1); }
+        .slide-up-enter-from, .slide-up-leave-to { transform: translateY(100%); }
+        .fade-enter-active, .fade-leave-active { transition: opacity 0.3s ease; }
+        .fade-enter-from, .fade-leave-to { opacity: 0; }
+        .loading-spinner { border: 3px solid #f3f3f3; border-top: 3px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    </style>
+</head>
+<body>
+
+<div id="app" class="app-container flex flex-col">
+    
+    <header class="glass-header sticky top-0 z-20 px-6 py-4 flex justify-between items-center">
+        <div class="flex items-center gap-4">
+            <button @click="prevUnit" class="w-8 h-8 rounded-full text-gray-400 hover:bg-gray-100 active:scale-95 transition">
+                <i class="fa-solid fa-chevron-left text-sm"></i>
+            </button>
+            <button @click="showDatePicker = true" class="p-1 rounded-lg hover:bg-gray-100">
+                <h1 class="text-xl font-bold text-gray-800">{{ currentYear }}年 {{ currentMonth + 1 }}月</h1>
+                <div class="flex items-center justify-center gap-2">
+                    <span class="w-2 h-2 rounded-full" :class="dbConnected ? 'bg-green-500' : 'bg-red-500'"></span>
+                    <p class="text-xs text-gray-500 font-medium">{{ dbConnected ? '雲端已連線' : '請編輯 HTML 檔案，填入 Firebase Config 才能使用！' }}</p>
+                </div>
+            </button>
+            <button @click="nextUnit" class="w-8 h-8 rounded-full text-gray-400 hover:bg-gray-100 active:scale-95 transition">
+                <i class="fa-solid fa-chevron-right text-sm"></i>
+            </button>
+        </div>
+        
+        <div class="flex items-center gap-2">
+            <div class="inline-flex rounded-full bg-gray-100 p-0.5">
+                <button @click="currentView = 'month'" class="px-3 py-1 text-xs font-semibold rounded-full transition-all"
+                        :class="currentView === 'month' ? 'bg-white shadow text-blue-600' : 'text-gray-500'">月</button>
+                <button @click="currentView = 'week'" class="px-3 py-1 text-xs font-semibold rounded-full transition-all"
+                        :class="currentView === 'week' ? 'bg-white shadow text-blue-600' : 'text-gray-500'">週</button>
+            </div>
+            <button @click="resetToToday" class="w-9 h-9 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-sm font-bold shadow-sm active:scale-95 transition">今</button>
+        </div>
+    </header>
+
+    <main class="flex-1 overflow-y-auto no-scrollbar pb-24">
+        
+        <div v-if="currentView === 'month'" class="px-4 py-4">
+            <div class="grid grid-cols-7 mb-2">
+                <div v-for="day in ['日','一','二','三','四','五','六']" :key="day" class="text-center text-xs text-gray-400 font-medium py-2">{{ day }}</div>
+            </div>
+            <div class="grid grid-cols-7 gap-y-2 gap-x-1">
+                <div v-for="n in startDayOfWeek" :key="'empty-'+n"></div>
+                <div v-for="date in daysInMonth" :key="date" 
+                     @click="selectDate(date)" @dblclick="handleDayDblClick(date)"
+                     class="relative flex flex-col items-center justify-center h-12 rounded-2xl transition-all cursor-pointer"
+                     :class="getDateClass(date)">
+                    <span class="text-sm font-medium z-10">{{ date }}</span>
+                    <div class="flex gap-0.5 mt-1" v-if="hasBooking(date)"><span class="w-1 h-1 rounded-full bg-blue-500"></span></div>
+                </div>
+            </div>
+        </div>
+        <div v-if="currentView === 'week'" class="px-4 py-4">
+             <div class="grid grid-cols-7 gap-x-1">
+                <div v-for="day in weekDaysList" :key="day.date"
+                     @click="selectDate(day.day)" @dblclick="handleDayDblClick(day.day)"
+                     class="relative flex flex-col items-center justify-center h-16 rounded-2xl transition-all cursor-pointer"
+                     :class="getDateClass(day.day, day.month, day.year)">
+                    <span class="text-[10px] font-medium z-10" :class="day.isCurrentMonth ? 'text-gray-500' : 'text-gray-400'">{{ day.label }}</span>
+                    <span class="text-sm font-bold z-10 mt-1">{{ day.day }}</span>
+                    <div class="flex gap-0.5 mt-1" v-if="hasBooking(day.day, day.month, day.year)"><span class="w-1 h-1 rounded-full bg-blue-500"></span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="px-6 mt-2 relative min-h-[200px]">
+            <div class="flex items-center justify-between mb-4 sticky top-0 bg-white/95 backdrop-blur py-2 z-10">
+                <h2 class="text-lg font-bold text-gray-800">
+                    {{ currentMonth + 1 }}月{{ selectedDate }}日 行程
+                </h2>
+                <span class="text-xs font-medium px-2 py-1 bg-gray-100 rounded-lg text-gray-500">{{ getWeekDay(selectedDate) }}</span>
+            </div>
+
+            <div v-if="isLoading" class="flex justify-center py-10">
+                <div class="loading-spinner"></div>
+            </div>
+            <div v-else-if="dayBookings.length === 0" class="flex flex-col items-center justify-center py-10 text-gray-400">
+                <i class="fa-regular fa-calendar-plus text-4xl mb-3 opacity-20"></i>
+                <p class="text-sm">點擊右下角或**雙擊日期**新增預約</p>
+            </div>
+            <transition-group name="list" tag="div" class="space-y-3">
+                <div v-for="booking in dayBookings" :key="booking.id" 
+                     class="bg-white p-4 rounded-2xl shadow-sm border border-gray-100 flex items-start gap-4 relative overflow-hidden group">
+                    <div class="absolute left-0 top-0 bottom-0 w-1.5" :class="getRoomColor(booking.room)"></div>
+                    <div class="flex flex-col items-center min-w-[3.5rem]">
+                        <span class="text-
